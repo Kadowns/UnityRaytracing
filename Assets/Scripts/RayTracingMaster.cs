@@ -10,67 +10,100 @@ namespace HawkTracer {
     [RequireComponent(typeof(Camera))]
     public class RayTracingMaster : Singleton<RayTracingMaster> {
 
-        private struct Sphere {
+        [System.Serializable]
+        private struct SphereObjectData {
             public Vector3 position;
             public float radius;
-            public RayTracedMaterial material;
+            public RayTracedMaterialData material;
         }
         
-        struct MeshObject {
-            public Matrix4x4 localToWorldMatrix;
-            public int indices_offset;
-            public int indices_count;
+        [System.Serializable]
+        private struct MeshIndex {
+            public int offset;
+            public int count;
         }
-        private List<MeshObject> m_meshObjects = new List<MeshObject>();
-        private List<Vector3> m_vertices = new List<Vector3>();
-        private List<int> m_indices = new List<int>();
+        
+        [System.Serializable]
+        private struct MeshObjectData {
+            public Matrix4x4 localToWorldMatrix;
+            public MeshIndex index;
+            public RayTracedMaterialData material;
+        }
+        
+        public ComputeShader RayTracingShader;
+        public Texture SkyboxTexture;
+        
+        [Range(1, 32)] public uint ReflectionCount = 8;
+        
+        private int m_kernel;
+        private uint m_groupX, m_groupY, m_groupZ;
+        private RenderTexture m_target, m_converged;
+        private Camera m_camera;
+        private Material m_addMaterial;
+        private int m_sampleIndex;
+        private bool m_updateScene;
+        
+        //objects references
+        private readonly List<Transform> m_transformsToWatch = new List<Transform>();
+        [SerializeField] private List<RayTracedSphere> m_raytracedSpheres = new List<RayTracedSphere>();
+        [SerializeField] private List<RayTracedMesh> m_raytracedMeshes = new List<RayTracedMesh>();
+        private bool m_rebuildSpheres, m_rebuildMeshes;
+        
+        ///object data
+        [SerializeField] private List<MeshObjectData> m_meshObjectsData = new List<MeshObjectData>();
+        [SerializeField] private List<SphereObjectData> m_sphereObjectsData = new List<SphereObjectData>();
+        
+        //buffers
+        private ComputeBuffer m_sphereObjectBuffer;
         private ComputeBuffer m_meshObjectBuffer;
         private ComputeBuffer m_vertexBuffer;
         private ComputeBuffer m_indexBuffer;
-
-
-        public ComputeShader RayTracingShader;
-        public Texture SkyboxTexture;
-        public List<SphereCollider> Spheres;
-
-        [Range(1, 32)] public uint ReflectionCount = 8;
-
-        private RenderTexture m_target, m_converged;
-        private Camera m_camera;
-
-        private readonly List<RaytracedMesh> m_raytracedMeshes = new List<RaytracedMesh>();
-        private bool m_rebuildMeshes;
         
-        private int m_kernel;
-        private List<Sphere> m_sphereData;
-        private ComputeBuffer m_sphereBuffer;
-        private Material m_addMaterial;
-        private int m_sampleIndex;
+        
+        //mesh buffers
+        private List<Vector3> m_vertices = new List<Vector3>();
+        private List<int> m_indices = new List<int>();
 
-        private uint m_groupX, m_groupY, m_groupZ;
-
-        public void RegisterObject(RaytracedMesh obj) {
+        public void RegisterMeshObject(RayTracedMesh obj) {
+            m_transformsToWatch.Add(obj.transform);
             m_raytracedMeshes.Add(obj);
             m_rebuildMeshes = true;
         }
 
-        public void UnregisterObject(RaytracedMesh obj) {
+        public void UnregisterMeshObject(RayTracedMesh obj) {
+            m_transformsToWatch.Remove(obj.transform);
             m_raytracedMeshes.Remove(obj);
             m_rebuildMeshes = true;
+        }
+        
+        public void RegisterSphereObject(RayTracedSphere obj) {
+            Debug.Log("adicionei esfera" + Time.time);
+            m_transformsToWatch.Add(obj.transform);
+            m_raytracedSpheres.Add(obj);
+            m_rebuildSpheres = true;
+        }
+
+        public void UnregisterSphereObject(RayTracedSphere obj) {
+            m_transformsToWatch.Remove(obj.transform);
+            m_raytracedSpheres.Remove(obj);
+            m_rebuildSpheres = true;
         }
 
         private void Awake() {
             m_camera = GetComponent<Camera>();
             m_kernel = RayTracingShader.FindKernel("CSMain");
+            m_rebuildMeshes = true;
+            m_rebuildSpheres = true;
             RayTracingShader.GetKernelThreadGroupSizes(m_kernel, out m_groupX, out m_groupY, out m_groupZ);
         }
 
-        private void OnEnable() {
-            SetUpScene();
+        private void Start() {
+            RebuildSphereObjectBuffers();
+            RebuildMeshObjectBuffers();
         }
 
         private void OnDisable() {
-            m_sphereBuffer?.Release();
+            m_sphereObjectBuffer?.Release();
             m_meshObjectBuffer?.Release();
             m_vertexBuffer?.Release();
             m_indexBuffer?.Release();
@@ -84,34 +117,73 @@ namespace HawkTracer {
             m_rebuildMeshes = false;
             m_sampleIndex = 0;
             // Clear all lists
-            m_meshObjects.Clear();
+            Debug.Log("Limpei");
+            m_meshObjectsData.Clear();
             m_vertices.Clear();
             m_indices.Clear();
+            
+            Dictionary<Mesh, MeshIndex> meshMap = new Dictionary<Mesh, MeshIndex>();
+            
             // Loop over all objects and gather their data
-            foreach (RaytracedMesh obj in m_raytracedMeshes) {
+            foreach (RayTracedMesh obj in m_raytracedMeshes) {
                 Mesh mesh = obj.GetComponent<MeshFilter>().sharedMesh;
-                // Add vertex data
-                int firstVertex = m_vertices.Count;
-                m_vertices.AddRange(mesh.vertices);
-                // Add index data - if the vertex buffer wasn't empty before, the
-                // indices need to be offset
-                int firstIndex = m_indices.Count;
-                var indices = mesh.GetIndices(0);
-                m_indices.AddRange(indices.Select(index => index + firstVertex));
+
+                //checks if this mesh is already present on scene
+                if (!meshMap.ContainsKey(mesh)) {
+                    // Add vertex data
+                    int firstVertex = m_vertices.Count;
+                    m_vertices.AddRange(mesh.vertices);
+                    // Add index data - if the vertex buffer wasn't empty before, the
+                    // indices need to be offset
+                    int firstIndex = m_indices.Count;
+                    var indices = mesh.GetIndices(0);
+                    m_indices.AddRange(indices.Select(index => index + firstVertex));
+                    meshMap[mesh] = new MeshIndex {offset = firstIndex, count = indices.Length};
+                }
+                
                 // Add the object itself
-                m_meshObjects.Add(new MeshObject {
+                m_meshObjectsData.Add(new MeshObjectData {
                     localToWorldMatrix = obj.transform.localToWorldMatrix,
-                    indices_offset = firstIndex,
-                    indices_count = indices.Length
+                    index = meshMap[mesh],
+                    material = obj.Material.Data
                 });
             }
 
             unsafe {
-                CreateComputeBuffer(ref m_meshObjectBuffer, m_meshObjects, sizeof(MeshObject));
+                CreateComputeBuffer(ref m_meshObjectBuffer, m_meshObjectsData, sizeof(MeshObjectData));
                 CreateComputeBuffer(ref m_vertexBuffer, m_vertices, sizeof(Vector3));
                 CreateComputeBuffer(ref m_indexBuffer, m_indices, sizeof(int));
             }
         }
+        
+        private void RebuildSphereObjectBuffers() {
+            if (!m_rebuildSpheres) {
+                return;
+            }
+
+            m_rebuildSpheres = false;
+            m_sampleIndex = 0;
+            m_sphereObjectsData.Clear();
+            Debug.Log("Limpei");
+
+            // Add a number of random spheres
+            for (int i = 0; i < m_raytracedSpheres.Count; i++) {
+                Debug.Log("esferas" + Time.time);
+
+                SphereObjectData sphereObjectData = new SphereObjectData();
+                sphereObjectData.radius = m_raytracedSpheres[i].Radius * m_raytracedSpheres[i].transform.localScale.x;
+                sphereObjectData.position = m_raytracedSpheres[i].transform.position;
+                sphereObjectData.material = m_raytracedSpheres[i].Material.Data;
+
+                // Add the sphere to the list
+                m_sphereObjectsData.Add(sphereObjectData);
+            }
+
+            unsafe {
+                CreateComputeBuffer(ref m_sphereObjectBuffer, m_sphereObjectsData, sizeof(SphereObjectData));
+            }
+        }
+        
 
         private static void CreateComputeBuffer<T>(ref ComputeBuffer buffer, List<T> data, int stride)
             where T : struct {
@@ -134,53 +206,12 @@ namespace HawkTracer {
                 // Set data on the buffer
                 buffer.SetData(data);
             }
-        }       
-
-        private void SetUpScene() {
-
-            m_sphereData = new List<Sphere>();
-
-            // Add a number of random spheres
-            for (int i = 0; i < Spheres.Count; i++) {
-
-                Sphere sphere = new Sphere();
-                sphere.radius = Spheres[i].radius * Spheres[i].transform.localScale.x;
-                sphere.position = Spheres[i].transform.position;
-
-                // Albedo and specular color
-                Color color = Random.ColorHSV();
-                bool metal = Random.value < 0.5f;
-
-                RayTracedMaterial mat;
-                mat.albedo = metal ? Vector3.zero : new Vector3(color.r, color.g, color.b);
-                mat.specular = metal ? new Vector3(color.r, color.g, color.b) : Vector3.one * 0.04f;
-
-                bool emissive = Random.value < 0.2;
-                mat.emission = emissive ? new Vector3(color.r, color.g, color.b) : Vector3.zero;
-                mat.smoothness = Random.value;
-                sphere.material = mat;
-
-                // Add the sphere to the list
-                m_sphereData.Add(sphere);
+        }    
+        
+        private void SetComputeBuffer(string name, ComputeBuffer buffer) {
+            if (buffer != null) {
+                RayTracingShader.SetBuffer(m_kernel, name, buffer);
             }
-
-            m_sphereBuffer?.Dispose();
-            // Assign to compute buffer
-            unsafe {
-                m_sphereBuffer = new ComputeBuffer(m_sphereData.Count, sizeof(Sphere));
-            }
-
-            m_sampleIndex = 0;
-        }
-
-        private void UpdateScene() {
-            for (int i = 0; i < Spheres.Count; i++) {
-                Sphere aux = m_sphereData[i];
-                aux.position = Spheres[i].transform.position;
-                m_sphereData[i] = aux;
-            }
-
-            m_sphereBuffer.SetData(m_sphereData);
         }
 
         private void SetShaderParameters() {
@@ -190,16 +221,10 @@ namespace HawkTracer {
             RayTracingShader.SetInt("_ReflectionCount", (int) ReflectionCount);
             RayTracingShader.SetFloat("_Seed", Random.value);
             RayTracingShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
-            SetComputeBuffer("_Spheres", m_sphereBuffer);
+            SetComputeBuffer("_Spheres", m_sphereObjectBuffer);
             SetComputeBuffer("_MeshObjects", m_meshObjectBuffer);
             SetComputeBuffer("_Vertices", m_vertexBuffer);
             SetComputeBuffer("_Indices", m_indexBuffer);
-        }
-        
-        private void SetComputeBuffer(string name, ComputeBuffer buffer) {
-            if (buffer != null) {
-                RayTracingShader.SetBuffer(m_kernel, name, buffer);
-            }
         }
 
         private void Update() {
@@ -208,38 +233,89 @@ namespace HawkTracer {
                 transform.hasChanged = false;
             }
 
-            Spheres.ForEach(s => {
-                if (s.transform.hasChanged) {
-                    s.transform.hasChanged = false;
+            m_transformsToWatch.ForEach(t => {
+                if (t.hasChanged) {
+                    m_updateScene = true;
+                    t.hasChanged = false;
                     m_sampleIndex = 0;
                 }
             });
         }
+        
+        private void UpdateScene() {
+            Debug.Log("tentei atualizar" + Time.time);
+            if (!m_updateScene) {
+                Debug.Log("nao consegui" + Time.time);
+                return;
+            }
+
+            if (m_sphereObjectsData.Count == m_raytracedSpheres.Count) {
+                for (int i = 0; i < m_raytracedSpheres.Count; i++) {
+                    SphereObjectData aux = m_sphereObjectsData[i];
+                    aux.position = m_raytracedSpheres[i].transform.position;
+                    m_sphereObjectsData[i] = aux;
+                }
+
+                m_sphereObjectBuffer.SetData(m_sphereObjectsData);
+            }
+
+
+            if (m_meshObjectsData.Count == m_raytracedMeshes.Count) {
+                for (int i = 0; i < m_raytracedMeshes.Count; i++) {
+                    MeshObjectData aux = m_meshObjectsData[i];
+                    aux.localToWorldMatrix = m_raytracedMeshes[i].transform.localToWorldMatrix;
+                    m_meshObjectsData[i] = aux;
+                }
+
+                m_meshObjectBuffer.SetData(m_meshObjectsData);
+            }
+
+            m_updateScene = false;
+        }
 
         private void OnRenderImage(RenderTexture source, RenderTexture destination) {
-
-            UpdateScene();
+            //UpdateScene();
+            
+            
+            
+            
+            RebuildSphereObjectBuffers();
+            RebuildMeshObjectBuffers();
+            
+            if (m_sphereObjectBuffer == null || m_meshObjectBuffer == null) {
+                Debug.Log("buffer nulo");
+                return;
+            }
+            
+            
             SetShaderParameters();
+            
             Render(destination);
+            Graphics.Blit(source, destination);
         }
 
         private void Render(RenderTexture destination) {
             // Make sure we have a current render target
             InitRenderTexture();
-            RebuildMeshObjectBuffers();
+            
             // Set the target and dispatch the compute shader
             RayTracingShader.SetTexture(m_kernel, "Result", m_target);
 
             int threadGroupsX = Mathf.CeilToInt(Screen.width / (float) m_groupX);
             int threadGroupsY = Mathf.CeilToInt(Screen.height / (float) m_groupY);
+            return;
             RayTracingShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
-
-
+            
+            
             if (!m_addMaterial) {
                 m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
             }
 
             m_addMaterial.SetFloat("_Sample", m_sampleIndex);
+            
+            
+           
+            
             Graphics.Blit(m_target, m_converged, m_addMaterial);
             Graphics.Blit(m_converged, destination);
             m_sampleIndex++;
