@@ -45,13 +45,13 @@ namespace HawkTracer {
         
         //objects references
         private readonly List<Transform> m_transformsToWatch = new List<Transform>();
-        [SerializeField] private List<RayTracedSphere> m_raytracedSpheres = new List<RayTracedSphere>();
-        [SerializeField] private List<RayTracedMesh> m_raytracedMeshes = new List<RayTracedMesh>();
+        private readonly List<RayTracedSphere> m_raytracedSpheres = new List<RayTracedSphere>();
+        private readonly List<RayTracedMesh> m_raytracedMeshes = new List<RayTracedMesh>();
         private bool m_rebuildSpheres, m_rebuildMeshes;
         
         ///object data
-        [SerializeField] private List<MeshObjectData> m_meshObjectsData = new List<MeshObjectData>();
-        [SerializeField] private List<SphereObjectData> m_sphereObjectsData = new List<SphereObjectData>();
+        private readonly List<MeshObjectData> m_meshObjectsData = new List<MeshObjectData>();
+        private readonly List<SphereObjectData> m_sphereObjectsData = new List<SphereObjectData>();
         
         //buffers
         private ComputeBuffer m_sphereObjectBuffer;
@@ -74,10 +74,10 @@ namespace HawkTracer {
             m_transformsToWatch.Remove(obj.transform);
             m_raytracedMeshes.Remove(obj);
             m_rebuildMeshes = true;
+            
         }
         
         public void RegisterSphereObject(RayTracedSphere obj) {
-            Debug.Log("adicionei esfera" + Time.time);
             m_transformsToWatch.Add(obj.transform);
             m_raytracedSpheres.Add(obj);
             m_rebuildSpheres = true;
@@ -92,14 +92,7 @@ namespace HawkTracer {
         private void Awake() {
             m_camera = GetComponent<Camera>();
             m_kernel = RayTracingShader.FindKernel("CSMain");
-            m_rebuildMeshes = true;
-            m_rebuildSpheres = true;
             RayTracingShader.GetKernelThreadGroupSizes(m_kernel, out m_groupX, out m_groupY, out m_groupZ);
-        }
-
-        private void Start() {
-            RebuildSphereObjectBuffers();
-            RebuildMeshObjectBuffers();
         }
 
         private void OnDisable() {
@@ -117,7 +110,6 @@ namespace HawkTracer {
             m_rebuildMeshes = false;
             m_sampleIndex = 0;
             // Clear all lists
-            Debug.Log("Limpei");
             m_meshObjectsData.Clear();
             m_vertices.Clear();
             m_indices.Clear();
@@ -168,7 +160,6 @@ namespace HawkTracer {
 
             // Add a number of random spheres
             for (int i = 0; i < m_raytracedSpheres.Count; i++) {
-                Debug.Log("esferas" + Time.time);
 
                 SphereObjectData sphereObjectData = new SphereObjectData();
                 sphereObjectData.radius = m_raytracedSpheres[i].Radius * m_raytracedSpheres[i].transform.localScale.x;
@@ -243,9 +234,7 @@ namespace HawkTracer {
         }
         
         private void UpdateScene() {
-            Debug.Log("tentei atualizar" + Time.time);
             if (!m_updateScene) {
-                Debug.Log("nao consegui" + Time.time);
                 return;
             }
 
@@ -274,24 +263,14 @@ namespace HawkTracer {
         }
 
         private void OnRenderImage(RenderTexture source, RenderTexture destination) {
-            //UpdateScene();
-            
-            
-            
-            
             RebuildSphereObjectBuffers();
             RebuildMeshObjectBuffers();
             
-            if (m_sphereObjectBuffer == null || m_meshObjectBuffer == null) {
-                Debug.Log("buffer nulo");
-                return;
-            }
-            
+            UpdateScene();
             
             SetShaderParameters();
             
             Render(destination);
-            Graphics.Blit(source, destination);
         }
 
         private void Render(RenderTexture destination) {
@@ -303,7 +282,7 @@ namespace HawkTracer {
 
             int threadGroupsX = Mathf.CeilToInt(Screen.width / (float) m_groupX);
             int threadGroupsY = Mathf.CeilToInt(Screen.height / (float) m_groupY);
-            return;
+            
             RayTracingShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
             
             
@@ -311,10 +290,7 @@ namespace HawkTracer {
                 m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
             }
 
-            m_addMaterial.SetFloat("_Sample", m_sampleIndex);
-            
-            
-           
+            m_addMaterial.SetFloat("_Sample", m_sampleIndex);       
             
             Graphics.Blit(m_target, m_converged, m_addMaterial);
             Graphics.Blit(m_converged, destination);

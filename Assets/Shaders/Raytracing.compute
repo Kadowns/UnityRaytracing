@@ -33,6 +33,7 @@ struct MeshObject {
     float4x4 localToWorldMatrix;
     int indices_offset;
     int indices_count;
+    Material material;
 };
 
 
@@ -162,7 +163,7 @@ void IntersectMeshObject(Ray ray, inout RayHit bestHit, MeshObject meshObject) {
                 bestHit.distance = t;
                 bestHit.position = ray.origin + t * ray.direction;
                 bestHit.normal = normalize(cross(v1 - v0, v2 - v0));
-                bestHit.material.albedo = 0.0f;
+                bestHit.material.albedo = meshObject.material.albedo;
                 bestHit.material.specular = 0.65f;
                 bestHit.material.smoothness = 0.99f;
                 bestHit.material.emission = 0.0f;
@@ -170,6 +171,7 @@ void IntersectMeshObject(Ray ray, inout RayHit bestHit, MeshObject meshObject) {
         }
     }
 }
+
 
 void IntersectGroundPlane(Ray ray, inout RayHit bestHit) {
     float t = -ray.origin.y / ray.direction.y;
@@ -283,7 +285,7 @@ void CSMain (uint3 id : SV_DispatchThreadID) {
     
     // Trace and shade
     float3 result = float3(0, 0, 0);
-    for (int i = 0; i > _ReflectionCount; i++) {
+    for (int i = 0; i < _ReflectionCount; i++) {
         RayHit hit = Trace(ray);
         result += ray.energy * Shade(ray, hit);
         if (!any(ray.energy))

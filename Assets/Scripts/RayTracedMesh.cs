@@ -7,8 +7,8 @@ namespace HawkTracer {
 
         public RayTracedMaterial Material;
 
-        private void Awake() {
-            //RayTracingMaster.Instance.RegisterMeshObject(this);
+        private void OnEnable() {
+            RayTracingMaster.Instance.RegisterMeshObject(this);
         }
 
         private void OnDisable() {

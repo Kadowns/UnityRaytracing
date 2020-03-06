@@ -7,8 +7,8 @@ namespace HawkTracer {
         public float Radius;
         public RayTracedMaterial Material;
 
-        private void Awake() {
-            //RayTracingMaster.Instance.RegisterSphereObject(this);
+        private void OnEnable() {
+            RayTracingMaster.Instance.RegisterSphereObject(this);
         }
 
         private void OnDisable() {
@@ -19,7 +19,6 @@ namespace HawkTracer {
         
         
 #if UNITY_EDITOR
-
         private void OnValidate() {
             var col = GetComponent<SphereCollider>();
             if (col) {
