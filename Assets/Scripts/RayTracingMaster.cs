@@ -32,6 +32,7 @@ namespace HawkTracer {
         
         public ComputeShader RayTracingShader;
         public Texture SkyboxTexture;
+        public Light Light;
         
         [Range(1, 32)] public uint ReflectionCount = 8;
         
@@ -212,6 +213,8 @@ namespace HawkTracer {
             RayTracingShader.SetInt("_ReflectionCount", (int) ReflectionCount);
             RayTracingShader.SetFloat("_Seed", Random.value);
             RayTracingShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
+            Vector3 light = Light.transform.forward;
+            RayTracingShader.SetVector("_DirectionalLight", new Vector4(light.x, light.y, light.z, Light.intensity));
             SetComputeBuffer("_Spheres", m_sphereObjectBuffer);
             SetComputeBuffer("_MeshObjects", m_meshObjectBuffer);
             SetComputeBuffer("_Vertices", m_vertexBuffer);

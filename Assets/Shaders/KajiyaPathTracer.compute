@@ -1,0 +1,97 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+
+#pragma kernel CSMain
+
+struct Material {
+    float3 albedo;
+    float3 specular;
+    float3 emission;
+    float smoothness;
+};
+
+#include "RaytracingMain.compute"
+
+Material CreateMaterial() {
+    Material material;
+    material.albedo = 0.0f;
+    material.specular = 0.0f;
+    material.emission = 0.0f;
+    material.smoothness = 0.0f;
+    return material;
+}
+
+void OnObjectHit(inout RayHit bestHit, Material material){
+    bestHit.material = material;
+}
+
+float SmoothnessToPhongAlpha(float s) {
+    return pow(1000.0f, s * s);
+}
+
+float3x3 GetTangentSpace(float3 normal) {
+    // Choose a helper vector for the cross product
+    float3 helper = float3(1, 0, 0);
+    if (abs(normal.x) > 0.99f)
+        helper = float3(0, 0, 1);
+    // Generate vectors
+    float3 tangent = normalize(cross(normal, helper));
+    float3 binormal = normalize(cross(normal, tangent));
+    return float3x3(tangent, binormal, normal);
+}
+
+float3 SampleHemisphere(float3 normal, float alpha) {
+    // Sample the hemisphere, where alpha determines the kind of the sampling
+    float cosTheta = pow(rand(), 1.0f / (alpha + 1.0f));
+    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
+    float phi = 2 * PI * rand();
+    float3 tangentSpaceDir = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    // Transform direction to world space
+    return mul(tangentSpaceDir, GetTangentSpace(normal));
+}
+
+
+float3 Shade(inout Ray ray, RayHit hit) {
+
+    float3 result = 0.0f;
+
+    if (any(hit.material.emission)){
+        result = hit.material.emission;
+    }
+    else if (hit.distance < 1.#INF) {
+    
+        // Calculate chances of diffuse and specular reflection
+        hit.material.albedo = min(1.0f - hit.material.specular, hit.material.albedo);
+        float specChance = energy(hit.material.specular);
+        float diffChance = energy(hit.material.albedo);
+        float sum = specChance + diffChance;
+        specChance /= sum;
+        diffChance /= sum;
+    
+        // Roulette-select the ray's path
+        float roulette = rand();
+        if (roulette < specChance) {
+            // Specular reflection
+            float alpha = SmoothnessToPhongAlpha(hit.material.smoothness);
+            ray.origin = hit.position + hit.normal * 0.001f;
+            ray.direction = SampleHemisphere(reflect(ray.direction, hit.normal), alpha);
+            float f = (alpha + 2) / (alpha + 1);
+            ray.energy *= (1.0f / specChance) * hit.material.specular * sdot(hit.normal, ray.direction, f);
+        }
+        else {
+            // Diffuse reflection
+            ray.origin = hit.position + hit.normal * 0.001f;
+            ray.direction = SampleHemisphere(hit.normal, 1.0f);
+            ray.energy *= (1.0f / diffChance) * hit.material.albedo;
+        }
+    }
+    else {
+    
+        ray.energy = 0.0f;
+        
+        // Sample the skybox and write it
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+        result = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
+    }
+    return result;
+}
