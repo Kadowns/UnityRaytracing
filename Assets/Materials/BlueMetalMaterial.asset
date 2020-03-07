@@ -12,8 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 06b11e3e13dee5a40ab79e08e1588890, type: 3}
   m_Name: BlueMetalMaterial
   m_EditorClassIdentifier: 
-  Data:
-    albedo: {x: 0.1, y: 0.1, z: 0.1}
-    specular: {x: 0.3, y: 0.2, z: 0.79}
-    emission: {x: 0, y: 0, z: 0}
-    smoothness: 0.8
+  Albedo: {r: 0, g: 0, b: 0, a: 1}
+  Specular: {r: 0.7169812, g: 0.7169812, b: 0.85882354, a: 0}
+  Emission: {r: 0, g: 0, b: 0, a: 0}
+  Smoothness: 0
