@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 06b11e3e13dee5a40ab79e08e1588890, type: 3}
   m_Name: RedMetalMaterial
   m_EditorClassIdentifier: 
-  Albedo: {r: 1, g: 1, b: 1, a: 0}
-  Specular: {r: 0.128, g: 0.128, b: 0.128, a: 0}
+  Albedo: {r: 0.3207547, g: 0.3207547, b: 0.3207547, a: 0}
+  Specular: {r: 0.7830189, g: 0.380429, b: 0.380429, a: 0}
   Emission: {r: 0, g: 0, b: 0, a: 0}
   Smoothness: 0

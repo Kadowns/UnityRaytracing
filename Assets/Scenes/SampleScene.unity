@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.45137423, g: 0.50092715, b: 0.5726448, a: 1}
+  m_IndirectSpecularColor: {r: 0.45137388, g: 0.5009264, b: 0.5726443, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -784,7 +784,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fb46ce0a601f03c4ba8f875b3382da73, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  RayTracingShader: {fileID: 7200000, guid: b39f6270920158a4da582b1aeb93707c, type: 3}
+  ComputeShader: {fileID: 7200000, guid: b39f6270920158a4da582b1aeb93707c, type: 3}
   SkyboxTexture: {fileID: 2800000, guid: 86f925da27856b547a9c87fe7151beee, type: 3}
   Light: {fileID: 1192354989}
   ReflectionCount: 8

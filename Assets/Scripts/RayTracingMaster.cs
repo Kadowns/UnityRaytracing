@@ -30,14 +30,18 @@ namespace HawkTracer {
             public RayTracedMaterialData material;
         }
         
-        public ComputeShader RayTracingShader;
+        public ComputeShader ComputeShader;
+
+        
+        private int m_kernel;
+        private uint m_groupX, m_groupY, m_groupZ;
+        
         public Texture SkyboxTexture;
         public Light Light;
         
         [Range(1, 32)] public uint ReflectionCount = 8;
         
-        private int m_kernel;
-        private uint m_groupX, m_groupY, m_groupZ;
+        
         private RenderTexture m_target, m_converged;
         private Camera m_camera;
         private Material m_addMaterial;
@@ -92,8 +96,8 @@ namespace HawkTracer {
 
         private void Awake() {
             m_camera = GetComponent<Camera>();
-            m_kernel = RayTracingShader.FindKernel("CSMain");
-            RayTracingShader.GetKernelThreadGroupSizes(m_kernel, out m_groupX, out m_groupY, out m_groupZ);
+            m_kernel = ComputeShader.FindKernel("CSMain");
+            ComputeShader.GetKernelThreadGroupSizes(m_kernel, out m_groupX, out m_groupY, out m_groupZ);
         }
 
         private void OnDisable() {
@@ -142,6 +146,7 @@ namespace HawkTracer {
                 });
             }
 
+            
             unsafe {
                 CreateComputeBuffer(ref m_meshObjectBuffer, m_meshObjectsData, sizeof(MeshObjectData));
                 CreateComputeBuffer(ref m_vertexBuffer, m_vertices, sizeof(Vector3));
@@ -157,7 +162,6 @@ namespace HawkTracer {
             m_rebuildSpheres = false;
             m_sampleIndex = 0;
             m_sphereObjectsData.Clear();
-            Debug.Log("Limpei");
 
             // Add a number of random spheres
             for (int i = 0; i < m_raytracedSpheres.Count; i++) {
@@ -202,19 +206,19 @@ namespace HawkTracer {
         
         private void SetComputeBuffer(string name, ComputeBuffer buffer) {
             if (buffer != null) {
-                RayTracingShader.SetBuffer(m_kernel, name, buffer);
+                ComputeShader.SetBuffer(m_kernel, name, buffer);
             }
         }
 
         private void SetShaderParameters() {
-            RayTracingShader.SetMatrix("_CameraToWorld", m_camera.cameraToWorldMatrix);
-            RayTracingShader.SetMatrix("_CameraInverseProjection", m_camera.projectionMatrix.inverse);
-            RayTracingShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
-            RayTracingShader.SetInt("_ReflectionCount", (int) ReflectionCount);
-            RayTracingShader.SetFloat("_Seed", Random.value);
-            RayTracingShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
+            ComputeShader.SetMatrix("_CameraToWorld", m_camera.cameraToWorldMatrix);
+            ComputeShader.SetMatrix("_CameraInverseProjection", m_camera.projectionMatrix.inverse);
+            ComputeShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
+            ComputeShader.SetInt("_ReflectionCount", (int) ReflectionCount);
+            ComputeShader.SetFloat("_Seed", Random.value);
+            ComputeShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
             Vector3 light = Light.transform.forward;
-            RayTracingShader.SetVector("_DirectionalLight", new Vector4(light.x, light.y, light.z, Light.intensity));
+            ComputeShader.SetVector("_DirectionalLight", new Vector4(light.x, light.y, light.z, Light.intensity));
             SetComputeBuffer("_Spheres", m_sphereObjectBuffer);
             SetComputeBuffer("_MeshObjects", m_meshObjectBuffer);
             SetComputeBuffer("_Vertices", m_vertexBuffer);
@@ -280,14 +284,12 @@ namespace HawkTracer {
             // Make sure we have a current render target
             InitRenderTexture();
             
-            // Set the target and dispatch the compute shader
-            RayTracingShader.SetTexture(m_kernel, "Result", m_target);
+            ComputeShader.SetTexture(m_kernel, "Result", m_target);
 
-            int threadGroupsX = Mathf.CeilToInt(Screen.width / (float) m_groupX);
-            int threadGroupsY = Mathf.CeilToInt(Screen.height / (float) m_groupY);
+            int threadGroupsX = Mathf.CeilToInt(m_target.width / (float) m_groupX);
+            int threadGroupsY = Mathf.CeilToInt(m_target.height / (float) m_groupY);
             
-            RayTracingShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
-            
+            ComputeShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
             
             if (!m_addMaterial) {
                 m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
@@ -298,6 +300,7 @@ namespace HawkTracer {
             Graphics.Blit(m_target, m_converged, m_addMaterial);
             Graphics.Blit(m_converged, destination);
             m_sampleIndex++;
+            
         }
 
         private void InitRenderTexture() {
