@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29abf406ac3b8fb4c9b5329835901635, type: 3}
   m_Name: Pathtracer
   m_EditorClassIdentifier: 
-  m_computeShader: {fileID: 0}
+  m_computeShader: {fileID: 7200000, guid: b39f6270920158a4da582b1aeb93707c, type: 3}
   ReflectionCount: 8
-  SkyboxTexture: {fileID: 0}
+  m_noiseTexture: {fileID: 2800000, guid: 3059f68f4277a2143abad838bdb9842e, type: 3}
+  SkyboxTexture: {fileID: 2800000, guid: 6fafa313aa5624948b0a8193b9ec93c6, type: 3}

@@ -36,7 +36,7 @@ RWTexture2D<float4> Result;
 float4x4 _CameraToWorld;
 float4x4 _CameraInverseProjection;
 int _ReflectionCount;
-uint _FrameCount;
+float _Time;
 
 StructuredBuffer<Sphere> _Spheres;
 StructuredBuffer<MeshObject> _MeshObjects;
@@ -46,6 +46,7 @@ StructuredBuffer<int> _Indices;
 Texture2D<float4> _SkyboxTexture;
 Texture2D<float4> _NoiseTexture;
 SamplerState sampler_SkyboxTexture;
+SamplerState sampler_NoiseTexture;
 float2 _PixelOffset;
 float2 _Pixel;
 float _Seed;
@@ -177,12 +178,18 @@ RayHit Trace(Ray ray) {
     
     return bestHit;
 }
+//_SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
+float2 GetSampleAngle(float2 uv) {
+    float value = _NoiseTexture.SampleLevel(sampler_NoiseTexture, float2(uv.xy * (_Time % 100)), 0).x;
+    float angle = (value * 360) * PI / 180.0;
+    return float2(cos(angle), sin(angle));
+}
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID) {
     _Pixel = id.xy;
     
-    float4 noise = mod(_NoiseTexture[id.xy * (_FrameCount % 100)] * GOLDEN_RATIO, 1);
+ //   float4 noise = mod(_NoiseTexture[id.xy * (_FrameCount % 100)] * GOLDEN_RATIO, 1);
     
     uint width, height;
     Result.GetDimensions(width, height);

@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEditor.PackageManager.UI;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
@@ -13,6 +14,7 @@ namespace HawkTracer {
         
         [SerializeField] private ComputeShader m_computeShader;
         [Range(1, 32)] public uint ReflectionCount = 8;
+        [Range(1, 32)] public uint SampleCount = 8;
         [SerializeField] private Texture m_noiseTexture;
         
         private int m_kernel;
@@ -28,9 +30,9 @@ namespace HawkTracer {
             m_frameCount++;
             m_computeShader.SetMatrix("_CameraToWorld", m_camera.cameraToWorldMatrix);
             m_computeShader.SetMatrix("_CameraInverseProjection", m_camera.projectionMatrix.inverse);
-            m_computeShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
+            
             m_computeShader.SetInt("_ReflectionCount", (int) ReflectionCount);
-            m_computeShader.SetInt("_FrameCount", (int) m_frameCount);
+            
             m_computeShader.SetFloat("_Seed", Random.value);
             m_computeShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
             m_computeShader.SetTexture(m_kernel, "_NoiseTexture", m_noiseTexture);
@@ -63,24 +65,29 @@ namespace HawkTracer {
         private void Render(RenderTexture destination, ref int sampleIndex) {
             // Make sure we have a current render target
             InitRenderTexture(ref sampleIndex);
-            
-            m_computeShader.SetTexture(m_kernel, "Result", m_target);
-
             int threadGroupsX = Mathf.CeilToInt(m_target.width / (float) m_groupX);
             int threadGroupsY = Mathf.CeilToInt(m_target.height / (float) m_groupY);
-            
-            m_computeShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
-            
-            if (!m_addMaterial) {
-                m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
-            }
+            m_computeShader.SetTexture(m_kernel, "Result", m_target);
 
-            m_addMaterial.SetFloat("_Sample", sampleIndex);       
-            
-            Graphics.Blit(m_target, m_converged, m_addMaterial);
+            for (int i = 0; i < SampleCount; i++)
+            {
+
+                
+                m_computeShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
+                m_computeShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
+
+                if (!m_addMaterial)
+                {
+                    m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
+                }
+
+                m_addMaterial.SetFloat("_Sample", i + 1);
+
+                Graphics.Blit(m_target, m_converged, m_addMaterial);
+                
+                sampleIndex++;
+            }
             Graphics.Blit(m_converged, destination);
-            sampleIndex++;
-            
         }
 
         private void InitRenderTexture(ref int sampleIndex) {
