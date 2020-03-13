@@ -29,24 +29,11 @@ namespace HawkTracer {
             public MeshIndex index;
             public RayTracedMaterialData material;
         }
-        
-        public ComputeShader ComputeShader;
 
-        
-        private int m_kernel;
-        private uint m_groupX, m_groupY, m_groupZ;
-        
-        public Texture SkyboxTexture;
-        public Light Light;
-        
-        [Range(1, 32)] public uint ReflectionCount = 8;
-        
-        
-        private RenderTexture m_target, m_converged;
+        public RayTracedContext Context;
+
         private Camera m_camera;
-        private Material m_addMaterial;
         private int m_sampleIndex;
-        private bool m_updateScene;
         
         //objects references
         private readonly List<Transform> m_transformsToWatch = new List<Transform>();
@@ -64,8 +51,7 @@ namespace HawkTracer {
         private ComputeBuffer m_vertexBuffer;
         private ComputeBuffer m_indexBuffer;
         
-        
-        //mesh buffers
+                //mesh buffers
         private List<Vector3> m_vertices = new List<Vector3>();
         private List<int> m_indices = new List<int>();
 
@@ -93,27 +79,14 @@ namespace HawkTracer {
             m_raytracedSpheres.Remove(obj);
             m_rebuildSpheres = true;
         }
-
-        private void Awake() {
-            m_camera = GetComponent<Camera>();
-            m_kernel = ComputeShader.FindKernel("CSMain");
-            ComputeShader.GetKernelThreadGroupSizes(m_kernel, out m_groupX, out m_groupY, out m_groupZ);
-        }
-
-        private void OnDisable() {
-            m_sphereObjectBuffer?.Release();
-            m_meshObjectBuffer?.Release();
-            m_vertexBuffer?.Release();
-            m_indexBuffer?.Release();
-        }
-
+        
         private void RebuildMeshObjectBuffers() {
             if (!m_rebuildMeshes) {
                 return;
             }
-
+            
             m_rebuildMeshes = false;
-            m_sampleIndex = 0;
+
             // Clear all lists
             m_meshObjectsData.Clear();
             m_vertices.Clear();
@@ -160,7 +133,6 @@ namespace HawkTracer {
             }
 
             m_rebuildSpheres = false;
-            m_sampleIndex = 0;
             m_sphereObjectsData.Clear();
 
             // Add a number of random spheres
@@ -203,45 +175,40 @@ namespace HawkTracer {
                 buffer.SetData(data);
             }
         }    
+   
+
+        private void Awake() {
+            m_camera = GetComponent<Camera>();
+            Context.OnInitialize(m_camera);
+        }
+
+        private void OnDisable() {
+            m_sphereObjectBuffer?.Release();
+            m_meshObjectBuffer?.Release();
+            m_vertexBuffer?.Release();
+            m_indexBuffer?.Release();
+            Context.OnClear();
+        }
+
         
-        private void SetComputeBuffer(string name, ComputeBuffer buffer) {
-            if (buffer != null) {
-                ComputeShader.SetBuffer(m_kernel, name, buffer);
-            }
-        }
-
-        private void SetShaderParameters() {
-            ComputeShader.SetMatrix("_CameraToWorld", m_camera.cameraToWorldMatrix);
-            ComputeShader.SetMatrix("_CameraInverseProjection", m_camera.projectionMatrix.inverse);
-            ComputeShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
-            ComputeShader.SetInt("_ReflectionCount", (int) ReflectionCount);
-            ComputeShader.SetFloat("_Seed", Random.value);
-            ComputeShader.SetTexture(m_kernel, "_SkyboxTexture", SkyboxTexture);
-            Vector3 light = Light.transform.forward;
-            ComputeShader.SetVector("_DirectionalLight", new Vector4(light.x, light.y, light.z, Light.intensity));
-            SetComputeBuffer("_Spheres", m_sphereObjectBuffer);
-            SetComputeBuffer("_MeshObjects", m_meshObjectBuffer);
-            SetComputeBuffer("_Vertices", m_vertexBuffer);
-            SetComputeBuffer("_Indices", m_indexBuffer);
-        }
-
-        private void Update() {
-            if (transform.hasChanged) {
+        private void UpdateScene() {
+        
+            if (m_camera.transform.hasChanged) {
                 m_sampleIndex = 0;
-                transform.hasChanged = false;
+                m_camera.transform.hasChanged = false;
             }
-
+            
+            bool updateScene = false;
             m_transformsToWatch.ForEach(t => {
                 if (t.hasChanged) {
-                    m_updateScene = true;
+                    updateScene = true;
                     t.hasChanged = false;
                     m_sampleIndex = 0;
                 }
             });
-        }
-        
-        private void UpdateScene() {
-            if (!m_updateScene) {
+            
+            
+            if (!updateScene) {
                 return;
             }
 
@@ -265,65 +232,20 @@ namespace HawkTracer {
 
                 m_meshObjectBuffer.SetData(m_meshObjectsData);
             }
-
-            m_updateScene = false;
         }
+        
 
         private void OnRenderImage(RenderTexture source, RenderTexture destination) {
+
+            UpdateScene();
             RebuildSphereObjectBuffers();
             RebuildMeshObjectBuffers();
             
-            UpdateScene();
-            
-            SetShaderParameters();
-            
-            Render(destination);
-        }
-
-        private void Render(RenderTexture destination) {
-            // Make sure we have a current render target
-            InitRenderTexture();
-            
-            ComputeShader.SetTexture(m_kernel, "Result", m_target);
-
-            int threadGroupsX = Mathf.CeilToInt(m_target.width / (float) m_groupX);
-            int threadGroupsY = Mathf.CeilToInt(m_target.height / (float) m_groupY);
-            
-            ComputeShader.Dispatch(m_kernel, threadGroupsX, threadGroupsY, 1);
-            
-            if (!m_addMaterial) {
-                m_addMaterial = new Material(Shader.Find("Hidden/AddShader"));
-            }
-
-            m_addMaterial.SetFloat("_Sample", m_sampleIndex);       
-            
-            Graphics.Blit(m_target, m_converged, m_addMaterial);
-            Graphics.Blit(m_converged, destination);
-            m_sampleIndex++;
-            
-        }
-
-        private void InitRenderTexture() {
-            if (m_target == null || m_target.width != Screen.width || m_target.height != Screen.height) {
-                // Release render texture if we already have one
-                if (m_target != null) {
-                    m_target.Release();
-                    m_converged.Release();
-                }
-
-                // Get a render target for Ray Tracing
-                m_target = new RenderTexture(Screen.width, Screen.height, 0,
-                    RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
-                m_target.enableRandomWrite = true;
-                m_target.Create();
-                m_converged = new RenderTexture(Screen.width, Screen.height, 0,
-                    RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
-                m_converged.enableRandomWrite = true;
-                m_converged.Create();
-
-                // Reset sampling
-                m_sampleIndex = 0;
-            }
+            Context.SetComputeBuffer("_Spheres", m_sphereObjectBuffer);
+            Context.SetComputeBuffer("_MeshObjects", m_meshObjectBuffer);
+            Context.SetComputeBuffer("_Vertices", m_vertexBuffer);
+            Context.SetComputeBuffer("_Indices", m_indexBuffer);
+            Context.OnRender(destination, ref m_sampleIndex);
         }
     }
 }
